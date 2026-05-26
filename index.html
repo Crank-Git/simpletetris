@@ -363,9 +363,16 @@
   body.no-controls .controls { display: none; }
   body.no-controls .side { width: 16vw; max-width: 96px; }
   body.no-controls .play-row { padding-bottom: 6px; }
-  /* tappable affordance on hold/next panels when controls hidden */
-  body.no-controls .side-box,
-  body.no-controls .next-list { cursor: pointer; }
+  /* Hold panel is always a tap target (swap piece) */
+  #holdBox {
+    cursor: pointer;
+    transition: transform 60ms ease, background 100ms ease, border-color 100ms ease;
+  }
+  #holdBox:active {
+    transform: scale(0.97);
+    background: var(--panel-2);
+    border-color: #3a4258;
+  }
 
   /* Line clear flash */
   @keyframes flash {
@@ -411,11 +418,11 @@
 
 <div class="play-row">
   <div class="side">
-    <div class="side-box">
-      <div class="caption">Hold</div>
+    <div class="side-box" id="holdBox" role="button" aria-label="Hold / swap piece">
+      <div class="caption">Hold · tap</div>
       <canvas id="hold" width="80" height="80"></canvas>
     </div>
-    <div class="side-box" style="flex:0 0 auto;">
+    <div class="side-box" id="bestBox" style="flex:0 0 auto;">
       <div class="caption">Best</div>
       <div class="value" id="best" style="font-size:14px;font-weight:700;font-variant-numeric:tabular-nums;">0</div>
     </div>
@@ -425,11 +432,11 @@
     <canvas id="board"></canvas>
     <button class="board-btn" id="toggleControlsBtn" aria-label="Hide controls">⊟</button>
     <button class="board-btn" id="pauseBtn" aria-label="Pause">⏸</button>
-    <div class="hide-hint" id="hideHint">Tap left/right • Drag to move • Flick ↓ hard drop • Swipe ↑ hold</div>
+    <div class="hide-hint" id="hideHint">Swipe anywhere · Tap = rotate · Flick ↓ = hard drop · Swipe ↑ or tap Hold = swap</div>
     <div class="overlay" id="overlay">
       <div class="card">
         <h1 id="overlay-title">Tetris</h1>
-        <p id="overlay-text">Tap Play to start. Tap pieces to rotate, swipe to move, swipe down hard to drop.</p>
+        <p id="overlay-text">Drag anywhere = move · Tap = rotate · Flick ↓ = hard drop · Swipe ↑ or tap Hold panel = swap.</p>
         <button class="big-btn" id="overlay-btn">Play</button>
         <div class="hint" id="overlay-hint">
           Tip: open Share → "Add to Home Screen" to play fullscreen with no Safari bars.
@@ -1127,9 +1134,9 @@
     });
   }
 
-  // Swipe gestures on the playfield
+  // Swipe gestures on the playfield (and everywhere else except the hold panel & UI buttons)
   function bindGestures() {
-    const target = boardCanvas;
+    const target = document.body;
     // Tunables
     const AXIS_LOCK_PX     = 12;   // movement before axis locks
     const TAP_MAX_MOVE_PX  = 10;   // total movement still considered a tap
@@ -1137,6 +1144,18 @@
     const FLICK_VEL        = 1.4;  // px/ms downward velocity that triggers hard drop
     const FLICK_MIN_CELLS  = 2;    // min downward travel (in cells) for flick
     const HOLD_UP_CELLS    = 1.5;  // upward travel (in cells) that triggers hold
+
+    // Elements that should NOT be swipe surfaces (tap or button only).
+    const isExcluded = (el) => {
+      if (!el || !el.closest) return true;
+      return !!(
+        el.closest('.btn') ||
+        el.closest('.board-btn') ||
+        el.closest('.overlay') ||
+        el.closest('.topbar') ||
+        el.closest('#holdBox')
+      );
+    };
 
     const S = {
       active: false,
@@ -1151,6 +1170,8 @@
       if (paused || gameOver) return;
       // single-touch only — ignore additional fingers
       if (e.touches && e.touches.length > 1) { S.active = false; return; }
+      // skip controls, overlay, topbar, and the tap-only hold panel
+      if (isExcluded(e.target)) { S.active = false; return; }
       const t = e.touches ? e.touches[0] : e;
       S.active = true;
       S.sx = S.lx = t.clientX;
@@ -1409,7 +1430,7 @@
       e.preventDefault();
     }, { passive: false });
 
-    showOverlay('Tetris', 'Tap & drag the board to move. Tap to rotate. Quick downward swipe = hard drop. Buttons work too.', 'Play');
+    showOverlay('Tetris', 'Drag anywhere = move · Tap = rotate · Swipe ↓ = hard drop · Swipe ↑ or tap Hold = swap.', 'Play');
   }
 
   if (document.readyState === 'loading') {
