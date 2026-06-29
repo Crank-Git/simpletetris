@@ -812,8 +812,11 @@
       if (board[r].every(v => v !== '')) cleared.push(r);
     }
     if (cleared.length) {
-      // remove and prepend empty rows
-      for (const r of cleared) board.splice(r, 1);
+      // drop the full rows (filter is order-independent — splicing ascending
+      // indices shifts later rows and removes the wrong ones), then prepend
+      // an empty row for each cleared line.
+      const clearedSet = new Set(cleared);
+      board = board.filter((_, r) => !clearedSet.has(r));
       while (board.length < TOTAL_ROWS) board.unshift(new Array(COLS).fill(''));
       addLineScore(cleared.length);
       flashClear();
