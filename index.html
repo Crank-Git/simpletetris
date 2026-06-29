@@ -863,7 +863,9 @@
     const newLevel = startLevel + Math.floor(lines / 10);
     if (newLevel !== level) {
       level = newLevel;
-      gravity = computeGravity(level);
+      // Endless: keep the fall speed fixed at the chosen start speed —
+      // only the level number and score climb.
+      gravity = computeGravity(gameMode === 'endless' ? startLevel : level);
     }
     showPopup(n);
     updateHUD();
@@ -1181,7 +1183,7 @@
     const note = document.getElementById('modeNote');
     if (note) {
       note.textContent = gameMode === 'endless'
-        ? 'Endless: board clears and play continues — never ends. Speed still rises as you clear lines.'
+        ? 'Endless: never ends — board clears and play continues. Speed stays fixed at your start speed; level and score still climb.'
         : 'Classic: speed rises with lines. Topping out ends the game.';
     }
   }
