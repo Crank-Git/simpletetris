@@ -305,6 +305,96 @@
     cursor: pointer;
   }
   .overlay .big-btn:active { transform: translateY(1px); }
+
+  /* Overlay settings (mode + start speed) */
+  .settings {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin: 0 0 16px;
+  }
+  .seg {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 4px;
+  }
+  .seg-btn {
+    -webkit-appearance: none;
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: var(--text-dim);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 9px 6px;
+    border-radius: 9px;
+    cursor: pointer;
+    transition: background 100ms ease, color 100ms ease;
+  }
+  .seg-btn.is-active {
+    background: linear-gradient(180deg, #245476, #163049);
+    color: #e9f6ff;
+    box-shadow: inset 0 0 0 1px #2c5c84;
+  }
+  .stepper {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 8px 12px;
+  }
+  .stepper-label {
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+  }
+  .stepper-ctrls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .step-btn {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 34px;
+    height: 34px;
+    border-radius: 9px;
+    border: 1px solid var(--border);
+    background: linear-gradient(180deg, var(--panel-2), var(--panel));
+    color: var(--text);
+    font-size: 20px;
+    font-weight: 700;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .step-btn:active { transform: translateY(1px) scale(0.97); }
+  .stepper-val {
+    min-width: 24px;
+    text-align: center;
+    font-size: 18px;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+  }
+  .settings-note {
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--text-dim);
+    min-height: 2.4em;
+  }
+
   .overlay .hint {
     margin-top: 14px;
     font-size: 11px;
@@ -437,6 +527,21 @@
       <div class="card">
         <h1 id="overlay-title">Tetris</h1>
         <p id="overlay-text">Drag anywhere = move · Tap = rotate · Flick ↓ = hard drop · Swipe ↑ or tap Hold panel = swap.</p>
+        <div class="settings" id="overlay-settings">
+          <div class="seg" id="modeSeg" role="group" aria-label="Game mode">
+            <button type="button" class="seg-btn is-active" data-mode="classic">Classic</button>
+            <button type="button" class="seg-btn" data-mode="endless">Endless</button>
+          </div>
+          <div class="stepper">
+            <span class="stepper-label">Start speed</span>
+            <div class="stepper-ctrls">
+              <button type="button" class="step-btn" id="speedDown" aria-label="Slower">−</button>
+              <span class="stepper-val" id="speedVal">1</span>
+              <button type="button" class="step-btn" id="speedUp" aria-label="Faster">+</button>
+            </div>
+          </div>
+          <div class="settings-note" id="modeNote">Speed rises with lines. Top out ends the game.</div>
+        </div>
         <button class="big-btn" id="overlay-btn">Play</button>
         <div class="hint" id="overlay-hint">
           Tip: open Share → "Add to Home Screen" to play fullscreen with no Safari bars.
@@ -570,6 +675,8 @@
   let hold;           // piece letter or null
   let canHold;        // whether hold is allowed this drop
   let score, level, lines, best;
+  let gameMode;       // 'classic' | 'endless'
+  let startLevel;     // user-chosen starting speed level (1..MAX_START_LEVEL)
   let gravity;        // ms per row
   let dropTimer;      // accumulated ms since last gravity step
   let lockTimer;      // ms remaining on lock delay (when grounded)
@@ -583,6 +690,7 @@
 
   const MAX_LOCK_RESETS = 15;
   const LOCK_DELAY_MS = 500;
+  const MAX_START_LEVEL = 20;
 
   // ---------- Canvas refs ----------
   const boardCanvas = document.getElementById('board');
@@ -724,6 +832,15 @@
     refillQueue();
     const np = spawnPiece(nextType);
     if (collides(np, board)) {
+      // Endless mode never ends: clear the stack and keep playing.
+      if (gameMode === 'endless') {
+        board = emptyBoard();
+        flashClear();
+        cur = np;
+        lockTimer = LOCK_DELAY_MS;
+        lockResets = 0;
+        return;
+      }
       cur = np;
       gameOver = true;
       running = false;
@@ -740,7 +857,7 @@
     const base = [0, 100, 300, 500, 800][n] || 0;
     score += base * level;
     lines += n;
-    const newLevel = Math.floor(lines / 10) + 1;
+    const newLevel = startLevel + Math.floor(lines / 10);
     if (newLevel !== level) {
       level = newLevel;
       gravity = computeGravity(level);
@@ -793,9 +910,14 @@
     if (prev) {
       cur = spawnPiece(prev);
       if (collides(cur, board)) {
-        gameOver = true; running = false; saveBest();
-        showOverlay('Game Over', `Score ${score.toLocaleString()}`, 'Play again');
-        return;
+        if (gameMode === 'endless') {
+          board = emptyBoard();
+          flashClear();
+        } else {
+          gameOver = true; running = false; saveBest();
+          showOverlay('Game Over', `Score ${score.toLocaleString()}`, 'Play again');
+          return;
+        }
       }
     } else {
       spawnNextOrEnd();
@@ -1030,6 +1152,35 @@
         localStorage.setItem('tetris.best', String(best));
       }
     } catch (e) {}
+  }
+  function loadSettings() {
+    gameMode = 'classic';
+    startLevel = 1;
+    try {
+      const m = localStorage.getItem('tetris.mode');
+      if (m === 'endless' || m === 'classic') gameMode = m;
+      const lvl = parseInt(localStorage.getItem('tetris.startLevel') || '1', 10);
+      if (lvl >= 1 && lvl <= MAX_START_LEVEL) startLevel = lvl;
+    } catch (e) {}
+  }
+  function saveSettings() {
+    try {
+      localStorage.setItem('tetris.mode', gameMode);
+      localStorage.setItem('tetris.startLevel', String(startLevel));
+    } catch (e) {}
+  }
+  function syncSettingsUI() {
+    document.querySelectorAll('#modeSeg .seg-btn').forEach(b => {
+      b.classList.toggle('is-active', b.getAttribute('data-mode') === gameMode);
+    });
+    const valEl = document.getElementById('speedVal');
+    if (valEl) valEl.textContent = startLevel;
+    const note = document.getElementById('modeNote');
+    if (note) {
+      note.textContent = gameMode === 'endless'
+        ? 'Endless: board clears and play continues — never ends. Speed still rises as you clear lines.'
+        : 'Classic: speed rises with lines. Topping out ends the game.';
+    }
   }
 
   // ---------- Game loop ----------
@@ -1318,10 +1469,11 @@
   }
 
   // ---------- Overlay / lifecycle ----------
-  function showOverlay(title, text, btnText) {
+  function showOverlay(title, text, btnText, showSettings = true) {
     document.getElementById('overlay-title').textContent = title;
     document.getElementById('overlay-text').textContent = text;
     document.getElementById('overlay-btn').textContent = btnText;
+    document.getElementById('overlay-settings').style.display = showSettings ? '' : 'none';
     document.getElementById('overlay').classList.remove('hidden');
   }
   function hideOverlay() {
@@ -1331,7 +1483,7 @@
   function togglePause() {
     if (gameOver) return;
     paused = !paused;
-    if (paused) showOverlay('Paused', 'Tap Resume to continue.', 'Resume');
+    if (paused) showOverlay('Paused', 'Tap Resume to continue.', 'Resume', false);
     else hideOverlay();
   }
 
@@ -1342,7 +1494,7 @@
     refillQueue();
     hold = null;
     canHold = true;
-    score = 0; lines = 0; level = 1;
+    score = 0; lines = 0; level = startLevel;
     gravity = computeGravity(level);
     dropTimer = 0; lockTimer = LOCK_DELAY_MS; lockResets = 0;
     softDropping = false;
@@ -1359,17 +1511,19 @@
   // ---------- Init ----------
   function init() {
     best = loadBest();
+    loadSettings();
     board = emptyBoard();
     queue = [];
     bag = newBag();
     refillQueue();
     hold = null;
     canHold = true;
-    score = 0; lines = 0; level = 1;
+    score = 0; lines = 0; level = startLevel;
     gravity = computeGravity(level);
     cur = null;
     running = false; paused = false; gameOver = false;
     updateHUD();
+    syncSettingsUI();
 
     fitBoardSize();
     render();
@@ -1378,8 +1532,31 @@
     bindGestures();
     bindKeyboard();
 
-    document.getElementById('overlay-btn').addEventListener('click', newGame);
+    // Overlay button is context-aware: Resume when paused, otherwise start a new game.
+    document.getElementById('overlay-btn').addEventListener('click', () => {
+      if (paused && !gameOver) togglePause();
+      else newGame();
+    });
     document.getElementById('pauseBtn').addEventListener('click', togglePause);
+
+    // Mode + start-speed settings on the overlay
+    document.getElementById('modeSeg').addEventListener('click', (e) => {
+      const b = e.target.closest('.seg-btn');
+      if (!b) return;
+      gameMode = b.getAttribute('data-mode') === 'endless' ? 'endless' : 'classic';
+      saveSettings();
+      syncSettingsUI();
+    });
+    document.getElementById('speedDown').addEventListener('click', () => {
+      startLevel = Math.max(1, startLevel - 1);
+      saveSettings();
+      syncSettingsUI();
+    });
+    document.getElementById('speedUp').addEventListener('click', () => {
+      startLevel = Math.min(MAX_START_LEVEL, startLevel + 1);
+      saveSettings();
+      syncSettingsUI();
+    });
 
     // Hide / show on-screen controls
     const HIDE_KEY = 'tetris.hideControls';
