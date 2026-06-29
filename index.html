@@ -513,7 +513,7 @@
       <canvas id="hold" width="80" height="80"></canvas>
     </div>
     <div class="side-box" id="bestBox" style="flex:0 0 auto;">
-      <div class="caption">Best</div>
+      <div class="caption" id="bestCaption">Best</div>
       <div class="value" id="best" style="font-size:14px;font-weight:700;font-variant-numeric:tabular-nums;">0</div>
     </div>
   </div>
@@ -530,7 +530,7 @@
         <div class="settings" id="overlay-settings">
           <div class="seg" id="modeSeg" role="group" aria-label="Game mode">
             <button type="button" class="seg-btn is-active" data-mode="classic">Classic</button>
-            <button type="button" class="seg-btn" data-mode="endless">Endless</button>
+            <button type="button" class="seg-btn" data-mode="endless">Continuous</button>
           </div>
           <div class="stepper">
             <span class="stepper-label">Start speed</span>
@@ -674,7 +674,8 @@
   let bag;            // current 7-bag
   let hold;           // piece letter or null
   let canHold;        // whether hold is allowed this drop
-  let score, level, lines, best;
+  let score, level, lines;
+  let bests;          // { classic, endless } — separate high scores per mode
   let gameMode;       // 'classic' | 'endless'
   let startLevel;     // user-chosen starting speed level (1..MAX_START_LEVEL)
   let gravity;        // ms per row
@@ -835,20 +836,9 @@
     refillQueue();
     const np = spawnPiece(nextType);
     if (collides(np, board)) {
-      // Endless mode never ends: clear the stack and keep playing.
-      if (gameMode === 'endless') {
-        board = emptyBoard();
-        flashClear();
-        cur = np;
-        lockTimer = LOCK_DELAY_MS;
-        lockResets = 0;
-        return;
-      }
+      // Both modes end on top-out (Continuous no longer auto-resets).
       cur = np;
-      gameOver = true;
-      running = false;
-      saveBest();
-      showOverlay('Game Over', `Score ${score.toLocaleString()} · Level ${level}`, 'Play again');
+      endGame();
       return;
     }
     cur = np;
@@ -915,14 +905,8 @@
     if (prev) {
       cur = spawnPiece(prev);
       if (collides(cur, board)) {
-        if (gameMode === 'endless') {
-          board = emptyBoard();
-          flashClear();
-        } else {
-          gameOver = true; running = false; saveBest();
-          showOverlay('Game Over', `Score ${score.toLocaleString()}`, 'Play again');
-          return;
-        }
+        endGame();
+        return;
       }
     } else {
       spawnNextOrEnd();
@@ -1142,21 +1126,41 @@
     document.getElementById('score').textContent = score.toLocaleString();
     document.getElementById('level').textContent = level;
     document.getElementById('lines').textContent = lines;
-    document.getElementById('best').textContent = Math.max(best, score).toLocaleString();
+    document.getElementById('best').textContent = Math.max(currentBest(), score).toLocaleString();
   }
 
   // ---------- Persistence ----------
-  function loadBest() {
-    try { return parseInt(localStorage.getItem('tetris.best') || '0', 10) || 0; }
-    catch (e) { return 0; }
+  // Classic keeps the legacy 'tetris.best' key; Continuous gets its own.
+  function bestKey(mode) { return mode === 'endless' ? 'tetris.best.endless' : 'tetris.best'; }
+  function loadBests() {
+    const read = (k) => {
+      try { return parseInt(localStorage.getItem(k) || '0', 10) || 0; }
+      catch (e) { return 0; }
+    };
+    return { classic: read(bestKey('classic')), endless: read(bestKey('endless')) };
   }
+  function currentBest() { return gameMode === 'endless' ? bests.endless : bests.classic; }
   function saveBest() {
     try {
-      if (score > best) {
-        best = score;
-        localStorage.setItem('tetris.best', String(best));
+      if (score > currentBest()) {
+        if (gameMode === 'endless') bests.endless = score; else bests.classic = score;
+        localStorage.setItem(bestKey(gameMode), String(score));
       }
     } catch (e) {}
+  }
+
+  // End the run (both modes): record the score and drop back to the main menu.
+  function endGame() {
+    gameOver = true;
+    running = false;
+    saveBest();
+    updateHUD();
+    const modeName = gameMode === 'endless' ? 'Continuous' : 'Classic';
+    showOverlay(
+      'Game Over',
+      `${modeName} · Score ${score.toLocaleString()} · Best ${currentBest().toLocaleString()}`,
+      'Play again'
+    );
   }
   function loadSettings() {
     gameMode = 'classic';
@@ -1183,9 +1187,13 @@
     const note = document.getElementById('modeNote');
     if (note) {
       note.textContent = gameMode === 'endless'
-        ? 'Endless: never ends — board clears and play continues. Speed stays fixed at your start speed; level and score still climb.'
+        ? 'Continuous: speed stays fixed at your start speed; level and score still climb. Topping out ends the run. Separate high score.'
         : 'Classic: speed rises with lines. Topping out ends the game.';
     }
+    const cap = document.getElementById('bestCaption');
+    if (cap) cap.textContent = gameMode === 'endless' ? 'Best · Cont' : 'Best · Classic';
+    // reflect the current mode's high score in the HUD
+    if (bests) document.getElementById('best').textContent = currentBest().toLocaleString();
   }
 
   // ---------- Game loop ----------
@@ -1515,8 +1523,8 @@
 
   // ---------- Init ----------
   function init() {
-    best = loadBest();
     loadSettings();
+    bests = loadBests();
     board = emptyBoard();
     queue = [];
     bag = newBag();
