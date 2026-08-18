@@ -1354,7 +1354,7 @@
   }
   function decodeSeed(str) {
     str = str.trim();
-    if (!str.startsWith('TETRIS1:')) throw new Error('Not a valid Tetris seed.');
+    if (!/^TETRIS1:/i.test(str)) throw new Error('Not a valid Tetris seed.');
     const data = JSON.parse(decodeURIComponent(atob(str.slice(8))));
     if (data.v !== 1) throw new Error('Unsupported seed version.');
     if (typeof data.board !== 'string' || data.board.length !== TOTAL_ROWS * COLS) {
@@ -1409,7 +1409,7 @@
     openModal(
       'Game Saved',
       `<p class="modal-hint">Copy this seed, then paste it back in later (from the main menu) to resume this exact game.</p>
-       <textarea class="seed-box" id="seedOutput" rows="4" readonly></textarea>`,
+       <textarea class="seed-box" id="seedOutput" rows="4" readonly autocapitalize="off" autocorrect="off" spellcheck="false"></textarea>`,
       `<button class="big-btn" id="modalCopyBtn">Copy</button>
        <button class="btn-secondary" id="modalCloseBtn">Close</button>`
     );
@@ -1432,7 +1432,7 @@
     openModal(
       'Load Seed',
       `<p class="modal-hint">Paste a saved Tetris seed below.</p>
-       <textarea class="seed-box" id="seedInput" rows="4" placeholder="TETRIS1:..."></textarea>
+       <textarea class="seed-box" id="seedInput" rows="4" placeholder="TETRIS1:..." autocapitalize="off" autocorrect="off" spellcheck="false"></textarea>
        <p class="modal-error" id="seedError" style="display:none;"></p>`,
       `<button class="big-btn" id="modalLoadBtn">Load</button>
        <button class="btn-secondary" id="modalCancelBtn">Cancel</button>`
