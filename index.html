@@ -426,6 +426,7 @@
   .board-btn:active { background: rgba(40, 48, 64, 0.9); }
   #pauseBtn { right: 6px; }
   #toggleControlsBtn { right: 46px; font-size: 18px; }
+  #leaderboardBtn { right: 86px; font-size: 16px; }
   .hide-hint {
     position: absolute;
     left: 50%;
@@ -522,6 +523,7 @@
     <canvas id="board"></canvas>
     <button class="board-btn" id="toggleControlsBtn" aria-label="Hide controls">⊟</button>
     <button class="board-btn" id="pauseBtn" aria-label="Pause">⏸</button>
+    <button class="board-btn" id="leaderboardBtn" aria-label="Leaderboard">🏆</button>
     <div class="hide-hint" id="hideHint">Swipe anywhere · Tap = rotate · Flick ↓ = hard drop · Swipe ↑ or tap Hold = swap</div>
     <div class="overlay" id="overlay">
       <div class="card">
@@ -543,8 +545,10 @@
           <div class="settings-note" id="modeNote">Speed rises with lines. Top out ends the game.</div>
         </div>
         <button class="big-btn" id="overlay-btn">Play</button>
+        <button class="big-btn" id="saveSeedBtn" style="display:none;">Save game as seed</button>
         <div class="hint" id="overlay-hint">
           Tip: open Share → "Add to Home Screen" to play fullscreen with no Safari bars.
+          <br><a href="#" id="loadSeedLink">Load from a saved seed…</a>
         </div>
       </div>
     </div>
@@ -1154,6 +1158,7 @@
     gameOver = true;
     running = false;
     saveBest();
+    maybeRecordLeaderboardEntry();
     updateHUD();
     const modeName = gameMode === 'endless' ? 'Continuous' : 'Classic';
     showOverlay(
@@ -1161,6 +1166,121 @@
       `${modeName} · Score ${score.toLocaleString()} · Best ${currentBest().toLocaleString()}`,
       'Play again'
     );
+  }
+
+  // ---------- Leaderboard (per device, per mode — top 10) ----------
+  function leaderboardKey(mode) { return mode === 'endless' ? 'tetris.leaderboard.endless' : 'tetris.leaderboard.classic'; }
+  function loadLeaderboard(mode) {
+    try { return JSON.parse(localStorage.getItem(leaderboardKey(mode)) || '[]'); }
+    catch (e) { return []; }
+  }
+  function saveLeaderboardEntry(mode, entry) {
+    const list = loadLeaderboard(mode);
+    list.push(entry);
+    list.sort((a, b) => b.score - a.score);
+    list.length = Math.min(list.length, 10);
+    try { localStorage.setItem(leaderboardKey(mode), JSON.stringify(list)); } catch (e) {}
+    return list;
+  }
+  function maybeRecordLeaderboardEntry() {
+    if (score <= 0) return;
+    const list = loadLeaderboard(gameMode);
+    const qualifies = list.length < 10 || score > list[list.length - 1].score;
+    if (!qualifies) return;
+    const name = (window.prompt('New leaderboard score! Enter a name:', '') || '').trim().slice(0, 20);
+    if (name) saveLeaderboardEntry(gameMode, { name, score, date: new Date().toISOString().slice(0, 10) });
+  }
+  function showLeaderboard() {
+    const list = loadLeaderboard(gameMode);
+    const modeName = gameMode === 'endless' ? 'Continuous' : 'Classic';
+    if (!list.length) {
+      alert(`${modeName} leaderboard (this device)\n\nNo scores saved yet.`);
+      return;
+    }
+    const lines = list.map((e, i) => `${i + 1}. ${e.name} — ${e.score.toLocaleString()}`);
+    alert(`${modeName} leaderboard (this device)\n\n${lines.join('\n')}`);
+  }
+
+  // ---------- Save/resume seed ----------
+  // Encodes full board + queue/bag + hold + current piece so a run can be
+  // copy-pasted and resumed exactly, including future piece order.
+  function encodeSeed() {
+    const boardStr = board.map(row => row.map(c => c || '.').join('')).join('');
+    const data = {
+      v: 1,
+      mode: gameMode,
+      startLevel,
+      score, level, lines,
+      board: boardStr,
+      queue: queue.slice(),
+      bag: bag.slice(),
+      hold, canHold,
+      cur: cur ? { type: cur.type, rot: cur.rot, x: cur.x, y: cur.y } : null,
+    };
+    return 'TETRIS1:' + btoa(encodeURIComponent(JSON.stringify(data)));
+  }
+  function decodeSeed(str) {
+    str = str.trim();
+    if (!str.startsWith('TETRIS1:')) throw new Error('Not a valid Tetris seed.');
+    const data = JSON.parse(decodeURIComponent(atob(str.slice(8))));
+    if (data.v !== 1) throw new Error('Unsupported seed version.');
+    if (typeof data.board !== 'string' || data.board.length !== TOTAL_ROWS * COLS) {
+      throw new Error('Corrupt seed board.');
+    }
+    return data;
+  }
+  function loadGame(data) {
+    gameMode = data.mode === 'endless' ? 'endless' : 'classic';
+    startLevel = (data.startLevel >= 1 && data.startLevel <= MAX_START_LEVEL) ? data.startLevel : 1;
+    saveSettings();
+
+    board = [];
+    for (let r = 0; r < TOTAL_ROWS; r++) {
+      const row = [];
+      for (let c = 0; c < COLS; c++) {
+        const ch = data.board[r * COLS + c];
+        row.push(ch === '.' ? '' : ch);
+      }
+      board.push(row);
+    }
+    queue = Array.isArray(data.queue) ? data.queue.slice() : [];
+    bag = Array.isArray(data.bag) ? data.bag.slice() : newBag();
+    refillQueue();
+    hold = data.hold || null;
+    canHold = !!data.canHold;
+    score = data.score | 0;
+    lines = data.lines | 0;
+    level = (data.level | 0) || startLevel;
+    gravity = computeGravity(level);
+    dropTimer = 0; lockTimer = LOCK_DELAY_MS; lockResets = 0;
+    softDropping = false;
+    paused = true; gameOver = false;
+    cur = data.cur ? { type: data.cur.type, rot: data.cur.rot, x: data.cur.x, y: data.cur.y } : null;
+    if (!cur || collides(cur, board)) cur = spawnPiece(queue.shift());
+    refillQueue();
+
+    updateHUD();
+    syncSettingsUI();
+    running = true;
+    lastFrame = performance.now();
+    requestAnimationFrame(step);
+
+    if (collides(cur, board)) { endGame(); return; }
+    // Load paused so the resumed board can be reviewed before play continues.
+    showOverlay('Loaded', 'Seed loaded. Tap Resume to continue.', 'Resume', false, true);
+  }
+  function showSeed() {
+    if (!running || gameOver || !cur) return;
+    window.prompt('Copy this seed (Cmd/Ctrl+C), then tap Resume:', encodeSeed());
+  }
+  function promptLoadSeed() {
+    const input = window.prompt('Paste a saved Tetris seed to resume that game:');
+    if (!input) return;
+    try {
+      loadGame(decodeSeed(input));
+    } catch (e) {
+      alert('Could not load that seed: ' + e.message);
+    }
   }
   function loadSettings() {
     gameMode = 'classic';
@@ -1482,11 +1602,12 @@
   }
 
   // ---------- Overlay / lifecycle ----------
-  function showOverlay(title, text, btnText, showSettings = true) {
+  function showOverlay(title, text, btnText, showSettings = true, showSaveSeed = false) {
     document.getElementById('overlay-title').textContent = title;
     document.getElementById('overlay-text').textContent = text;
     document.getElementById('overlay-btn').textContent = btnText;
     document.getElementById('overlay-settings').style.display = showSettings ? '' : 'none';
+    document.getElementById('saveSeedBtn').style.display = showSaveSeed ? '' : 'none';
     document.getElementById('overlay').classList.remove('hidden');
   }
   function hideOverlay() {
@@ -1496,7 +1617,7 @@
   function togglePause() {
     if (gameOver) return;
     paused = !paused;
-    if (paused) showOverlay('Paused', 'Tap Resume to continue.', 'Resume', false);
+    if (paused) showOverlay('Paused', 'Tap Resume to continue.', 'Resume', false, true);
     else hideOverlay();
   }
 
@@ -1551,6 +1672,12 @@
       else newGame();
     });
     document.getElementById('pauseBtn').addEventListener('click', togglePause);
+    document.getElementById('saveSeedBtn').addEventListener('click', showSeed);
+    document.getElementById('leaderboardBtn').addEventListener('click', showLeaderboard);
+    document.getElementById('loadSeedLink').addEventListener('click', (e) => {
+      e.preventDefault();
+      promptLoadSeed();
+    });
 
     // Mode + start-speed settings on the overlay
     document.getElementById('modeSeg').addEventListener('click', (e) => {
