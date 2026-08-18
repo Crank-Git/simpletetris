@@ -401,6 +401,91 @@
     color: var(--text-dim);
     line-height: 1.6;
   }
+  .overlay .hint a {
+    color: var(--accent);
+    text-decoration: none;
+  }
+  .overlay .hint a:active { opacity: 0.7; }
+
+  /* Generic modal (seed save/load, leaderboard, name entry) */
+  #modal { z-index: 20; }
+  #modal .card { max-width: 320px; width: 100%; }
+  .modal-hint {
+    margin: 0 0 12px;
+    color: var(--text-dim);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  .modal-error {
+    margin: -6px 0 12px;
+    color: var(--danger);
+    font-size: 12px;
+  }
+  .modal-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  .btn-secondary {
+    -webkit-appearance: none;
+    appearance: none;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-dim);
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 11px 20px;
+    border-radius: 12px;
+    cursor: pointer;
+  }
+  .btn-secondary:active { transform: translateY(1px); }
+  .seed-box {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--text);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    padding: 10px;
+    resize: none;
+    margin: 0 0 14px;
+  }
+  input.seed-box {
+    font-family: inherit;
+    font-size: 15px;
+    text-align: center;
+    padding: 12px 10px;
+  }
+  .lb-list {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    margin: 0 0 14px;
+    max-height: 260px;
+    overflow-y: auto;
+  }
+  .lb-row {
+    display: grid;
+    grid-template-columns: 20px 1fr auto;
+    gap: 8px;
+    align-items: center;
+    padding: 8px 10px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    font-size: 13px;
+    text-align: left;
+  }
+  .lb-rank { color: var(--text-dim); font-weight: 700; font-size: 12px; }
+  .lb-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lb-score { font-variant-numeric: tabular-nums; font-weight: 700; }
 
   /* Floating board buttons (pause, hide-controls) */
   .board-btn {
@@ -409,7 +494,7 @@
     width: 34px;
     height: 34px;
     border-radius: 8px;
-    background: rgba(20, 24, 34, 0.78);
+    background: rgba(20, 24, 34, 0.45);
     border: 1px solid var(--border);
     color: var(--text);
     display: flex;
@@ -423,10 +508,10 @@
     backdrop-filter: blur(4px);
     -webkit-backdrop-filter: blur(4px);
   }
-  .board-btn:active { background: rgba(40, 48, 64, 0.9); }
+  .board-btn:active { background: rgba(40, 48, 64, 0.75); }
   #pauseBtn { right: 6px; }
-  #toggleControlsBtn { right: 46px; font-size: 18px; }
-  #leaderboardBtn { right: 86px; font-size: 16px; }
+  #toggleControlsBtn { right: 50px; font-size: 18px; }
+  #leaderboardBtn { right: 94px; font-size: 16px; }
   .hide-hint {
     position: absolute;
     left: 50%;
@@ -549,7 +634,15 @@
         <div class="hint" id="overlay-hint">
           Tip: open Share → "Add to Home Screen" to play fullscreen with no Safari bars.
           <br><a href="#" id="loadSeedLink">Load from a saved seed…</a>
+          <br><a href="#" id="menuLeaderboardLink">View leaderboard</a>
         </div>
+      </div>
+    </div>
+    <div class="overlay hidden" id="modal">
+      <div class="card">
+        <h1 id="modal-title"></h1>
+        <div id="modal-body"></div>
+        <div class="modal-actions" id="modal-actions"></div>
       </div>
     </div>
   </div>
@@ -1168,6 +1261,20 @@
     );
   }
 
+  // ---------- Generic modal (replaces native prompt/alert for in-theme UI) ----------
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+  function openModal(title, bodyHTML, actionsHTML) {
+    document.getElementById('modal-title').textContent = title;
+    document.getElementById('modal-body').innerHTML = bodyHTML;
+    document.getElementById('modal-actions').innerHTML = actionsHTML;
+    document.getElementById('modal').classList.remove('hidden');
+  }
+  function closeModal() {
+    document.getElementById('modal').classList.add('hidden');
+  }
+
   // ---------- Leaderboard (per device, per mode — top 10) ----------
   function leaderboardKey(mode) { return mode === 'endless' ? 'tetris.leaderboard.endless' : 'tetris.leaderboard.classic'; }
   function loadLeaderboard(mode) {
@@ -1187,18 +1294,44 @@
     const list = loadLeaderboard(gameMode);
     const qualifies = list.length < 10 || score > list[list.length - 1].score;
     if (!qualifies) return;
-    const name = (window.prompt('New leaderboard score! Enter a name:', '') || '').trim().slice(0, 20);
-    if (name) saveLeaderboardEntry(gameMode, { name, score, date: new Date().toISOString().slice(0, 10) });
+    openModal(
+      'New Leaderboard Score!',
+      `<p class="modal-hint">${score.toLocaleString()} points — enter a name to save it to this device's leaderboard.</p>
+       <input type="text" class="seed-box" id="lbNameInput" maxlength="20" placeholder="Name" autocomplete="off">`,
+      `<button class="big-btn" id="modalSaveBtn">Save</button>
+       <button class="btn-secondary" id="modalSkipBtn">Skip</button>`
+    );
+    const input = document.getElementById('lbNameInput');
+    requestAnimationFrame(() => input.focus());
+    const save = () => {
+      const name = input.value.trim().slice(0, 20);
+      if (name) saveLeaderboardEntry(gameMode, { name, score, date: new Date().toISOString().slice(0, 10) });
+      closeModal();
+    };
+    document.getElementById('modalSaveBtn').addEventListener('click', save);
+    document.getElementById('modalSkipBtn').addEventListener('click', closeModal);
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') save(); });
+  }
+  // Pauses first if a run is in progress, so the leaderboard always opens
+  // over a frozen board; closing it leaves the game paused (Resume required).
+  function openLeaderboard() {
+    if (running && !paused && !gameOver) togglePause();
+    showLeaderboard();
   }
   function showLeaderboard() {
     const list = loadLeaderboard(gameMode);
     const modeName = gameMode === 'endless' ? 'Continuous' : 'Classic';
-    if (!list.length) {
-      alert(`${modeName} leaderboard (this device)\n\nNo scores saved yet.`);
-      return;
-    }
-    const lines = list.map((e, i) => `${i + 1}. ${e.name} — ${e.score.toLocaleString()}`);
-    alert(`${modeName} leaderboard (this device)\n\n${lines.join('\n')}`);
+    const body = list.length
+      ? `<div class="lb-list">${list.map((e, i) => `
+          <div class="lb-row">
+            <span class="lb-rank">${i + 1}</span>
+            <span class="lb-name">${escapeHtml(e.name)}</span>
+            <span class="lb-score">${e.score.toLocaleString()}</span>
+          </div>`).join('')}</div>`
+      : `<p class="modal-hint">No scores saved yet on this device.</p>`;
+    openModal(`${modeName} Leaderboard`, body + `<p class="modal-hint">Stored on this device only.</p>`,
+      `<button class="big-btn" id="modalCloseBtn">Close</button>`);
+    document.getElementById('modalCloseBtn').addEventListener('click', closeModal);
   }
 
   // ---------- Save/resume seed ----------
@@ -1261,6 +1394,7 @@
 
     updateHUD();
     syncSettingsUI();
+    render();
     running = true;
     lastFrame = performance.now();
     requestAnimationFrame(step);
@@ -1271,16 +1405,53 @@
   }
   function showSeed() {
     if (!running || gameOver || !cur) return;
-    window.prompt('Copy this seed (Cmd/Ctrl+C), then tap Resume:', encodeSeed());
+    const seed = encodeSeed();
+    openModal(
+      'Game Saved',
+      `<p class="modal-hint">Copy this seed, then paste it back in later (from the main menu) to resume this exact game.</p>
+       <textarea class="seed-box" id="seedOutput" rows="4" readonly></textarea>`,
+      `<button class="big-btn" id="modalCopyBtn">Copy</button>
+       <button class="btn-secondary" id="modalCloseBtn">Close</button>`
+    );
+    const ta = document.getElementById('seedOutput');
+    ta.value = seed;
+    requestAnimationFrame(() => ta.select());
+    ta.addEventListener('click', () => ta.select());
+    document.getElementById('modalCopyBtn').addEventListener('click', async () => {
+      ta.select();
+      let copied = true;
+      try { await navigator.clipboard.writeText(seed); }
+      catch (e) { copied = document.execCommand('copy'); }
+      const btn = document.getElementById('modalCopyBtn');
+      btn.textContent = copied ? 'Copied!' : 'Select & Cmd/Ctrl+C';
+      setTimeout(() => { if (btn.isConnected) btn.textContent = 'Copy'; }, 1400);
+    });
+    document.getElementById('modalCloseBtn').addEventListener('click', closeModal);
   }
   function promptLoadSeed() {
-    const input = window.prompt('Paste a saved Tetris seed to resume that game:');
-    if (!input) return;
-    try {
-      loadGame(decodeSeed(input));
-    } catch (e) {
-      alert('Could not load that seed: ' + e.message);
-    }
+    openModal(
+      'Load Seed',
+      `<p class="modal-hint">Paste a saved Tetris seed below.</p>
+       <textarea class="seed-box" id="seedInput" rows="4" placeholder="TETRIS1:..."></textarea>
+       <p class="modal-error" id="seedError" style="display:none;"></p>`,
+      `<button class="big-btn" id="modalLoadBtn">Load</button>
+       <button class="btn-secondary" id="modalCancelBtn">Cancel</button>`
+    );
+    const input = document.getElementById('seedInput');
+    requestAnimationFrame(() => input.focus());
+    const load = () => {
+      try {
+        const data = decodeSeed(input.value);
+        closeModal();
+        loadGame(data);
+      } catch (e) {
+        const err = document.getElementById('seedError');
+        err.textContent = e.message;
+        err.style.display = '';
+      }
+    };
+    document.getElementById('modalLoadBtn').addEventListener('click', load);
+    document.getElementById('modalCancelBtn').addEventListener('click', closeModal);
   }
   function loadSettings() {
     gameMode = 'classic';
@@ -1673,7 +1844,11 @@
     });
     document.getElementById('pauseBtn').addEventListener('click', togglePause);
     document.getElementById('saveSeedBtn').addEventListener('click', showSeed);
-    document.getElementById('leaderboardBtn').addEventListener('click', showLeaderboard);
+    document.getElementById('leaderboardBtn').addEventListener('click', openLeaderboard);
+    document.getElementById('menuLeaderboardLink').addEventListener('click', (e) => {
+      e.preventDefault();
+      openLeaderboard();
+    });
     document.getElementById('loadSeedLink').addEventListener('click', (e) => {
       e.preventDefault();
       promptLoadSeed();
